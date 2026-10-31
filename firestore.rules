@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check authentication
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to verify user ownership
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper function to check administrative claim & Master Admin email fallback
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' || 
+        request.auth.token.email == 'anilkumarsharyy2007@gmail.com'
+      );
+    }
+
+    // Private user collections: only accessible by the authenticated owner
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+
+      // Subcollections (tasks, notes, transactions, bills, habits, documents, etc.)
+      match /{collectionName}/{docId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // User Subscriptions & VIP Plans
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /userSubscriptions/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // Plans Collection (Read by all, editable only by admin)
+    match /plans/{planId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Orders Collection
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Payments Collection
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Manual Payment Requests (Static QR & 12-digit UTR verification)
+    match /manualPaymentRequests/{requestId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Webhook Events Log (Only Cloud Functions Admin SDK or Master Admin)
+    match /webhookEvents/{eventId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Legacy Payment Transactions & Verified Receipts
+    match /payment_transactions/{txnId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
+    // Public / Community collections
+    match /lostFoundListings/{listingId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+
+    match /localServices/{serviceId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /directorySubmissions/{submissionId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Default deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
